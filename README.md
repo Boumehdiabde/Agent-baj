@@ -26,6 +26,7 @@ Task Automation
 Code Writing
 Workflow Construction
 The actual structure of the project:
+
 1. Core
 Bash
 agent-os/
@@ -43,6 +44,7 @@ What does it do?
 Memory Management
 Linking LLMs
 Control of Tools
+
 2. Agents
 Bash
 Agents/
