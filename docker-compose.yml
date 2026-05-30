@@ -1,14 +1,83 @@
-version: '3'
+version: '3.8'
 
 services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: agent_baj_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: agent_baj
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - agent_network
 
-  api:
-    build: .
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: agent_baj_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - agent_network
+
+  # FastAPI Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agent_baj_app
     ports:
       - "8000:8000"
+    environment:
+      FASTAPI_ENV: development
+      FASTAPI_HOST: 0.0.0.0
+      FASTAPI_PORT: 8000
+      FASTAPI_RELOAD: "true"
+      DATABASE_URL: postgresql://postgres:password@postgres:5432/agent_baj
+      REDIS_URL: redis://redis:6379/0
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      SECRET_KEY: dev-secret-key-change-in-production
+      API_KEY: dev-api-key-change-in-production
+      LOG_LEVEL: INFO
+      MAX_ITERATIONS: 10
+      TIMEOUT: 300
+      # Add your LLM API keys here:
+      # OPENAI_API_KEY: your-key-here
+      # ANTHROPIC_API_KEY: your-key-here
+      # GOOGLE_API_KEY: your-key-here
+    volumes:
+      - .:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - agent_network
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
-  redis:
-    image: redis
+volumes:
+  postgres_data:
+  redis_data:
 
-  postgres:
-    image: postgres
+networks:
+  agent_network:
+    driver: bridge
