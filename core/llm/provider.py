@@ -1,58 +1,39 @@
-"""Base LLM Provider interface"""
+"""Base LLM provider interface and implementations."""
 from abc import ABC, abstractmethod
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List
 
 
 class LLMProvider(ABC):
-    """Abstract base class for LLM providers"""
-    
     def __init__(self, api_key: str):
         self.api_key = api_key
-    
+
     @abstractmethod
     async def generate(self, prompt: str, **kwargs) -> str:
-        """Generate response from prompt"""
         pass
-    
+
     @abstractmethod
     async def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
-        """Chat interface for conversational AI"""
         pass
-    
+
     @abstractmethod
     def get_model_info(self) -> Dict[str, Any]:
-        """Get information about the model"""
         pass
 
 
 class OpenAIProvider(LLMProvider):
-    """OpenAI GPT provider"""
-    
-    def __init__(self, api_key: str, model: str = "gpt-4"):
+    def __init__(self, api_key: str, model: str = "gpt-4o-mini"):
         super().__init__(api_key)
         self.model = model
         try:
-            import openai
-            openai.api_key = api_key
-            self.client = openai.AsyncOpenAI(api_key=api_key)
-        except ImportError:
-            raise ImportError("openai package not installed. Install with: pip install openai")
-    
+            from openai import AsyncOpenAI
+            self.client = AsyncOpenAI(api_key=api_key)
+        except ImportError as exc:
+            raise ImportError("Install the openai package to use this provider") from exc
+
     async def generate(self, prompt: str, **kwargs) -> str:
-        """Generate response using OpenAI"""
-        try:
-            response = await self.client.completions.create(
-                model=self.model,
-                prompt=prompt,
-                max_tokens=kwargs.get("max_tokens", 2048),
-                temperature=kwargs.get("temperature", 0.7),
-            )
-            return response.choices[0].text.strip()
-        except Exception as e:
-            raise RuntimeError(f"OpenAI API error: {str(e)}")
-    
+        return await self.chat([{"role": "user", "content": prompt}], **kwargs)
+
     async def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
-        """Chat with OpenAI"""
         try:
             response = await self.client.chat.completions.create(
                 model=self.model,
@@ -60,112 +41,80 @@ class OpenAIProvider(LLMProvider):
                 max_tokens=kwargs.get("max_tokens", 2048),
                 temperature=kwargs.get("temperature", 0.7),
             )
-            return response.choices[0].message.content.strip()
-        except Exception as e:
-            raise RuntimeError(f"OpenAI API error: {str(e)}")
-    
+            return response.choices[0].message.content or ""
+        except Exception as exc:
+            raise RuntimeError(f"OpenAI API request failed: {exc}") from exc
+
     def get_model_info(self) -> Dict[str, Any]:
-        """Get OpenAI model information"""
-        return {
-            "provider": "openai",
-            "model": self.model,
-            "type": "chat"
-        }
+        return {"provider": "openai", "model": self.model, "type": "chat"}
 
 
 class AnthropicProvider(LLMProvider):
-    """Anthropic Claude provider"""
-    
-    def __init__(self, api_key: str, model: str = "claude-3-opus-20240229"):
+    def __init__(self, api_key: str, model: str = "claude-3-5-sonnet-latest"):
         super().__init__(api_key)
         self.model = model
         try:
             import anthropic
             self.client = anthropic.AsyncAnthropic(api_key=api_key)
-        except ImportError:
-            raise ImportError("anthropic package not installed. Install with: pip install anthropic")
-    
+        except ImportError as exc:
+            raise ImportError("Install the anthropic package to use this provider") from exc
+
     async def generate(self, prompt: str, **kwargs) -> str:
-        """Generate response using Claude"""
-        try:
-            message = await self.client.messages.create(
-                model=self.model,
-                max_tokens=kwargs.get("max_tokens", 2048),
-                messages=[{"role": "user", "content": prompt}],
-            )
-            return message.content[0].text.strip()
-        except Exception as e:
-            raise RuntimeError(f"Anthropic API error: {str(e)}")
-    
+        return await self.chat([{"role": "user", "content": prompt}], **kwargs)
+
     async def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
-        """Chat with Claude"""
         try:
+            system_messages = [m["content"] for m in messages if m.get("role") == "system"]
+            conversation = [m for m in messages if m.get("role") in {"user", "assistant"}]
             response = await self.client.messages.create(
                 model=self.model,
                 max_tokens=kwargs.get("max_tokens", 2048),
-                messages=messages,
+                system="\n\n".join(system_messages),
+                messages=conversation,
             )
-            return response.content[0].text.strip()
-        except Exception as e:
-            raise RuntimeError(f"Anthropic API error: {str(e)}")
-    
+            return "".join(block.text for block in response.content if hasattr(block, "text"))
+        except Exception as exc:
+            raise RuntimeError(f"Anthropic API request failed: {exc}") from exc
+
     def get_model_info(self) -> Dict[str, Any]:
-        """Get Claude model information"""
-        return {
-            "provider": "anthropic",
-            "model": self.model,
-            "type": "chat"
-        }
+        return {"provider": "anthropic", "model": self.model, "type": "chat"}
 
 
 class GoogleProvider(LLMProvider):
-    """Google Generative AI provider"""
-    
-    def __init__(self, api_key: str, model: str = "gemini-pro"):
+    def __init__(self, api_key: str, model: str = "gemini-1.5-flash"):
         super().__init__(api_key)
         self.model = model
         try:
             import google.generativeai as genai
             genai.configure(api_key=api_key)
             self.client = genai.GenerativeModel(model)
-        except ImportError:
-            raise ImportError("google-generativeai package not installed. Install with: pip install google-generativeai")
-    
+        except ImportError as exc:
+            raise ImportError("Install google-generativeai to use this provider") from exc
+
     async def generate(self, prompt: str, **kwargs) -> str:
-        """Generate response using Google"""
-        try:
-            response = self.client.generate_content(prompt)
-            return response.text.strip()
-        except Exception as e:
-            raise RuntimeError(f"Google API error: {str(e)}")
-    
+        return await self.chat([{"role": "user", "content": prompt}], **kwargs)
+
     async def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
-        """Chat with Google"""
+        import asyncio
         try:
-            chat = self.client.start_chat()
-            response = chat.send_message(messages[-1]["content"] if messages else "")
-            return response.text.strip()
-        except Exception as e:
-            raise RuntimeError(f"Google API error: {str(e)}")
-    
+            prompt = "\n\n".join(
+                f"{message['role']}: {message['content']}" for message in messages
+            )
+            response = await asyncio.to_thread(self.client.generate_content, prompt)
+            return getattr(response, "text", "") or ""
+        except Exception as exc:
+            raise RuntimeError(f"Google API request failed: {exc}") from exc
+
     def get_model_info(self) -> Dict[str, Any]:
-        """Get Google model information"""
-        return {
-            "provider": "google",
-            "model": self.model,
-            "type": "generative"
-        }
+        return {"provider": "google", "model": self.model, "type": "generative"}
 
 
 def get_llm_provider(provider: str, api_key: str, **kwargs) -> LLMProvider:
-    """Factory function to get LLM provider"""
     provider = provider.lower()
-    
     if provider == "openai":
-        return OpenAIProvider(api_key, model=kwargs.get("model", "gpt-4"))
-    elif provider == "anthropic":
-        return AnthropicProvider(api_key, model=kwargs.get("model", "claude-3-opus-20240229"))
-    elif provider == "google":
-        return GoogleProvider(api_key, model=kwargs.get("model", "gemini-pro"))
-    else:
-        raise ValueError(f"Unknown LLM provider: {provider}")
+        return OpenAIProvider(api_key, model=kwargs.get("model", "gpt-4o-mini"))
+    if provider == "anthropic":
+        return AnthropicProvider(api_key, model=kwargs.get("model", "claude-3-5-sonnet-latest"))
+    if provider == "google":
+        return GoogleProvider(api_key, model=kwargs.get("model", "gemini-1.5-flash"))
+    raise ValueError(f"Unknown LLM provider: {provider}")
