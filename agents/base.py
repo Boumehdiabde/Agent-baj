@@ -55,45 +55,84 @@ class BaseAgent(ABC):
         }
 
 
-class ResearchAgent(BaseAgent):
+COMMON_RULES = (
+    "Rules: reply in the same language as the user's task. "
+    "You have no internet access and cannot run code, open files or execute actions; "
+    "never claim you did. State your assumptions briefly. "
+    "If key information is missing, make a reasonable assumption and say so. "
+    "Be concise and well structured."
+)
+
+
+class SpecializedAgent(BaseAgent):
+    NAME = "Agent"
+    ROLE = ""
+    PLAN_PROMPT = ""
+    ACT_PROMPT = ""
+
     def __init__(self, llm_provider: LLMProvider):
-        super().__init__("ResearchAgent", llm_provider)
+        super().__init__(self.NAME, llm_provider)
 
     async def think(self, task: str) -> str:
-        return await self.llm_provider.generate(f"Analyze this research task and create a research plan: {task}")
+        messages = [
+            {"role": "system", "content": f"{self.ROLE}\n\n{self.PLAN_PROMPT}\n\n{COMMON_RULES}"},
+            {"role": "user", "content": task},
+        ]
+        return (await self.llm_provider.chat(messages)) or ""
 
     async def act(self, plan: str) -> str:
-        return await self.chat_with_plan("You are a research and analysis assistant. Be clear about uncertainty and do not invent sources.", plan)
+        return await self.chat_with_plan(f"{self.ROLE}\n\n{self.ACT_PROMPT}\n\n{COMMON_RULES}", plan)
 
 
-class CodingAgent(BaseAgent):
-    def __init__(self, llm_provider: LLMProvider):
-        super().__init__("CodingAgent", llm_provider)
-
-    async def think(self, task: str) -> str:
-        return await self.llm_provider.generate(f"Analyze this coding task and create a development plan: {task}")
-
-    async def act(self, plan: str) -> str:
-        return await self.chat_with_plan("You are a coding assistant. Provide safe, testable code and explain assumptions.", plan)
-
-
-class AutomationAgent(BaseAgent):
-    def __init__(self, llm_provider: LLMProvider):
-        super().__init__("AutomationAgent", llm_provider)
-
-    async def think(self, task: str) -> str:
-        return await self.llm_provider.generate(f"Analyze this automation task and create an automation plan: {task}")
-
-    async def act(self, plan: str) -> str:
-        return await self.chat_with_plan("You design automation workflows. Do not claim to execute workflows.", plan)
+class ResearchAgent(SpecializedAgent):
+    NAME = "ResearchAgent"
+    ROLE = "You are a careful research analyst."
+    PLAN_PROMPT = (
+        "Write a short research plan: key questions, angles to cover, "
+        "and what evidence would settle each question. Max 8 lines."
+    )
+    ACT_PROMPT = (
+        "Produce the final answer: a short summary first, then findings, "
+        "then open questions. Separate facts from interpretation, flag uncertainty, "
+        "and never invent sources, numbers or quotes."
+    )
 
 
-class MarketingAgent(BaseAgent):
-    def __init__(self, llm_provider: LLMProvider):
-        super().__init__("MarketingAgent", llm_provider)
+class CodingAgent(SpecializedAgent):
+    NAME = "CodingAgent"
+    ROLE = "You are a senior software engineer."
+    PLAN_PROMPT = (
+        "Write a short development plan: requirements, approach, edge cases, "
+        "and how to test it. Max 8 lines."
+    )
+    ACT_PROMPT = (
+        "Give complete, working, commented code in fenced code blocks, "
+        "then a short explanation and a minimal test or usage example. "
+        "Handle errors and edge cases, avoid unsafe patterns, and state which language and version you assume."
+    )
 
-    async def think(self, task: str) -> str:
-        return await self.llm_provider.generate(f"Analyze this marketing task and create a marketing strategy: {task}")
 
-    async def act(self, plan: str) -> str:
-        return await self.chat_with_plan("You are a marketing assistant. Tailor recommendations to the supplied context.", plan)
+class AutomationAgent(SpecializedAgent):
+    NAME = "AutomationAgent"
+    ROLE = "You are an automation and workflow designer."
+    PLAN_PROMPT = (
+        "Break the goal into trigger, steps, tools and failure points. Max 8 lines."
+    )
+    ACT_PROMPT = (
+        "Present the workflow as numbered steps with the trigger, inputs, outputs, "
+        "suggested tools (cron, scripts, webhooks, Zapier/n8n) and error handling. "
+        "You only design workflows; you do not run them."
+    )
+
+
+class MarketingAgent(SpecializedAgent):
+    NAME = "MarketingAgent"
+    ROLE = "You are a pragmatic marketing strategist and copywriter."
+    PLAN_PROMPT = (
+        "Identify the audience, goal, channel and key message, "
+        "and list the assumptions you make. Max 8 lines."
+    )
+    ACT_PROMPT = (
+        "Deliver concrete, ready-to-use output: strategy points, then sample copy or a content plan "
+        "tailored to the audience and channel. Avoid vague advice and invented statistics."
+    )
